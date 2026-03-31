@@ -86,10 +86,18 @@ def generate_signals(seed=42):
         i_adc_in[ph] = i_in
 
         # ── Thermal noise ─────────────────────────────────────
+        # Noise is added at the ADC input (before quantization), matching
+        # the physical reality: thermal noise from the front-end resistors
+        # and ADS131M08 input stage corrupts the analog signal before
+        # it is sampled.  NOISE_RMS_LSB ≈ 3–4 LSB rms is typical for a
+        # 24-bit Δ-Σ ADC at 8 kHz ODR (datasheet: ADS131M08, Table 1).
         v_noisy = v_in + np.random.normal(0, NOISE_RMS_LSB * LSB, N_SAMPLES)
         i_noisy = i_in + np.random.normal(0, NOISE_RMS_LSB * LSB, N_SAMPLES)
 
         # ── 24-bit Quantization ───────────────────────────────
+        # Divide by LSB → nearest integer count → saturate to ±2^23.
+        # np.round() implements mid-tread uniform quantization (round half
+        # to even).  The clip guard handles rare over-range from noise peaks.
         v_q = np.round(v_noisy / LSB).astype(np.int32)
         i_q = np.round(i_noisy / LSB).astype(np.int32)
 
@@ -97,6 +105,10 @@ def generate_signals(seed=42):
         i_counts[ph] = np.clip(i_q, ADC_MIN, ADC_MAX)
 
         # ── Reconstruct physical values from counts ───────────
+        # Reverse the front-end scaling: counts → ADC input voltage
+        # (counts × LSB) → actual physical quantity (× V_DIVIDER or
+        # × CT_RATIO / BURDEN_R).  This is what the DSP firmware does
+        # after reading raw integer samples from the ADS131M08.
         v_recon[ph] = v_counts[ph] * LSB * V_DIVIDER
         i_recon[ph] = i_counts[ph] * LSB * CT_RATIO / BURDEN_R
 
